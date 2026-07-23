@@ -669,13 +669,15 @@ function showError(lat, lng, err) {
   panel.className = "";
   const isCors = err.message && (err.message.includes("Failed to fetch") || err.message.includes("NetworkError") || err.message.includes("CORS"));
   if (isCors) corsWarning.style.display = "block";
+  const coordsHtml = (lat != null && lng != null)
+    ? `<div class="crop-coords">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>` : "";
   panel.innerHTML = `
     <div class="crop-row">
       <div class="crop-emoji">⚠️</div>
       <div class="crop-info">
-        <div class="crop-name error-msg">${isCors ? "CORS error — serve via a local server" : "API error"}</div>
+        <div class="crop-name error-msg">${isCors ? "CORS error — serve via a local server" : "Error"}</div>
         <div class="crop-fact error-msg">${err.message}</div>
-        <div class="crop-coords">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
+        ${coordsHtml}
       </div>
     </div>`;
 }
@@ -790,49 +792,96 @@ function haversine(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+function startWatching() {
+  watchId = navigator.geolocation.watchPosition(
+    async (pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      placeGpsMarker(lat, lng);
+      map.setView([lat, lng], 13);
+
+      if (lastWatchLat !== null) {
+        const dist = haversine(lastWatchLat, lastWatchLng, lat, lng);
+        if (dist < 0.1) return; // Less than ~100m, skip
+      }
+      lastWatchLat = lat;
+      lastWatchLng = lng;
+
+      placeMarker(lat, lng);
+      showLoading(lat, lng);
+      try {
+        const result = await getCropAt(lat, lng);
+        showCrop(lat, lng, result);
+      } catch (err) {
+        showError(lat, lng, err);
+      }
+    },
+    (err) => {
+      watchBtn.classList.remove("active");
+      watchBtn.textContent = "🚗";
+      watchId = null;
+      const msg = err.code === 1
+        ? "Location access denied. Allow it in your browser settings and try again."
+        : err.message;
+      showError(null, null, new Error(msg));
+    },
+    { enableHighAccuracy: true, maximumAge: 5000 }
+  );
+}
+
 watchBtn.addEventListener("click", () => {
   if (watchId !== null) {
-    // Stop watching
     navigator.geolocation.clearWatch(watchId);
     watchId = null;
+    lastWatchLat = null;
+    lastWatchLng = null;
     watchBtn.classList.remove("active");
+    watchBtn.textContent = "🚗";
     watchBtn.title = "Road trip mode: track my location";
-  } else {
-    // Start watching
-    if (!navigator.geolocation) { alert("Geolocation not supported."); return; }
-    watchBtn.classList.add("active");
-    watchBtn.title = "Stop tracking";
-    watchId = navigator.geolocation.watchPosition(
-      async (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        placeGpsMarker(lat, lng);
-        map.setView([lat, lng], 13);
-
-        // Only query if we've moved enough
-        if (lastWatchLat !== null) {
-          const dist = haversine(lastWatchLat, lastWatchLng, lat, lng);
-          if (dist < 0.1) return; // Less than ~100m, skip
-        }
-        lastWatchLat = lat;
-        lastWatchLng = lng;
-
-        placeMarker(lat, lng);
-        showLoading(lat, lng);
-        try {
-          const code = await getCropAt(lat, lng);
-          showCrop(lat, lng, code);
-        } catch (err) {
-          showError(lat, lng, err);
-        }
-      },
-      (err) => {
-        watchBtn.classList.remove("active");
-        watchId = null;
-        alert("Location error: " + err.message);
-      },
-      { enableHighAccuracy: true, maximumAge: 5000 }
-    );
+    return;
   }
+
+  if (!navigator.geolocation) {
+    showError(null, null, new Error("Geolocation is not supported by this browser."));
+    return;
+  }
+
+  // Use getCurrentPosition first — this immediately triggers the browser's
+  // location permission dialog as a direct response to the tap, which browsers
+  // require. Once permission is granted and we have the first fix, switch to
+  // watchPosition for continuous road-trip tracking.
+  watchBtn.textContent = "⏳";
+  panel.className = "";
+  panel.innerHTML = `<div class="panel-idle"><span style="font-size:1.5rem">📍</span>
+    <span>Tap <strong>Allow</strong> when your browser asks for location…</span></div>`;
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      watchBtn.classList.add("active");
+      watchBtn.textContent = "🚗";
+      watchBtn.title = "Tap to stop tracking";
+
+      const { latitude: lat, longitude: lng } = pos.coords;
+      map.setView([lat, lng], 13);
+      placeGpsMarker(lat, lng);
+      placeMarker(lat, lng);
+      showLoading(lat, lng);
+
+      // Look up the first position, then hand off to watchPosition
+      getCropAt(lat, lng)
+        .then(result => showCrop(lat, lng, result))
+        .catch(err   => showError(lat, lng, err));
+
+      startWatching();
+    },
+    (err) => {
+      watchBtn.textContent = "🚗";
+      const msg = err.code === 1
+        ? "Location access denied. Allow it in your browser settings and try again."
+        : err.message;
+      showError(null, null, new Error(msg));
+    },
+    { enableHighAccuracy: true, timeout: 15000 }
+  );
 });
 </script>
 </body>
