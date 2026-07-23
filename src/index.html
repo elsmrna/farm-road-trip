@@ -745,8 +745,13 @@ map.on("click", async (e) => {
 const gpsBtn = document.getElementById("gps-btn");
 
 gpsBtn.addEventListener("click", () => {
+  if (gpsBtn.classList.contains("active")) {
+    gpsBtn.classList.remove("active");
+    if (gpsMarker) { map.removeLayer(gpsMarker); gpsMarker = null; }
+    return;
+  }
   if (!navigator.geolocation) {
-    alert("Geolocation is not supported by your browser.");
+    showError(null, null, new Error("Geolocation is not supported by this browser."));
     return;
   }
   gpsBtn.textContent = "⏳";
@@ -768,7 +773,7 @@ gpsBtn.addEventListener("click", () => {
     },
     (err) => {
       gpsBtn.textContent = "📍";
-      alert("Could not get location: " + err.message);
+      showError(null, null, new Error(err.message));
     },
     { enableHighAccuracy: true }
   );
