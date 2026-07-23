@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Farm Road Trip 🌾</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #1a1a1a;
+      color: #f0f0f0;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      background: #111;
+      border-bottom: 1px solid #2a2a2a;
+      flex-shrink: 0;
+      z-index: 1000;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; letter-spacing: -0.02em; }
+    header .subtitle { font-size: 0.75rem; color: #888; margin-left: auto; }
+
+    /* ── Map ── */
+    #map {
+      flex: 1;
+      min-height: 0;
+      cursor: crosshair;
+    }
+
+    /* ── Panel ── */
+    #panel {
+      flex-shrink: 0;
+      background: #111;
+      border-top: 1px solid #2a2a2a;
+      padding: 14px 16px;
+      min-height: 110px;
+      transition: all 0.2s ease;
+    }
+
+    #panel.loading .crop-name::after {
+      content: "";
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #444;
+      border-top-color: #7ec8a0;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .panel-idle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #555;
+      font-size: 0.9rem;
+    }
+
+    .crop-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+
+    .crop-emoji {
+      font-size: 2.4rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .crop-info { flex: 1; min-width: 0; }
+
+    .crop-name {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #f0f0f0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .crop-category {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #7ec8a0;
+      margin-top: 2px;
+    }
+
+    .crop-fact {
+      font-size: 0.82rem;
+      color: #aaa;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
+    .crop-coords {
+      font-size: 0.7rem;
+      color: #555;
+      margin-top: 6px;
+      font-family: monospace;
+    }
+
+    .error-msg {
+      color: #e07070;
+      font-size: 0.85rem;
+    }
+
+    /* ── Map controls (override leaflet) ── */
+    .leaflet-control-zoom a {
+      background: #222 !important;
+      color: #ccc !important;
+      border-color: #333 !important;
+    }
+    .leaflet-control-zoom a:hover { background: #333 !important; }
+
+    /* ── GPS button ── */
+    #gps-btn {
+      position: absolute;
+      bottom: 130px;
+      right: 10px;
+      z-index: 800;
+      background: #222;
+      border: 1px solid #333;
+      color: #ccc;
+      border-radius: 4px;
+      width: 34px;
+      height: 34px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      transition: background 0.15s;
+    }
+    #gps-btn:hover { background: #333; color: #fff; }
+    #gps-btn.active { background: #1a4a2e; border-color: #7ec8a0; color: #7ec8a0; }
+
+    /* ── Watch mode toggle ── */
+    #watch-btn {
+      position: absolute;
+      bottom: 170px;
+      right: 10px;
+      z-index: 800;
+      background: #222;
+      border: 1px solid #333;
+      color: #ccc;
+      border-radius: 4px;
+      width: 34px;
+      height: 34px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      transition: background 0.15s;
+    }
+    #watch-btn:hover { background: #333; color: #fff; }
+    #watch-btn.active { background: #1a3a4a; border-color: #70a8e0; color: #70a8e0; }
+
+    /* ── Tip ── */
+    .map-tip {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 800;
+      background: rgba(0,0,0,0.7);
+      color: #aaa;
+      font-size: 0.75rem;
+      padding: 5px 12px;
+      border-radius: 20px;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* ── CORS warning banner ── */
+    #cors-warning {
+      display: none;
+      background: #2a1a0a;
+      border-top: 1px solid #5a3a0a;
+      color: #e0a060;
+      font-size: 0.75rem;
+      padding: 8px 16px;
+      text-align: center;
+    }
+    #cors-warning a { color: #e0c070; }
+
+    /* ── Location marker pulse ── */
+    .location-pulse {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #4a90d9;
+      border: 2px solid white;
+      box-shadow: 0 0 0 0 rgba(74,144,217,0.6);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(74,144,217,0.6); }
+      70%  { box-shadow: 0 0 0 12px rgba(74,144,217,0); }
+      100% { box-shadow: 0 0 0 0 rgba(74,144,217,0); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span>🌾</span>
+  <h1>Farm Road Trip</h1>
+  <span class="subtitle">Click anywhere · or use GPS</span>
+</header>
+
+<div style="position:relative; flex:1; min-height:0; display:flex; flex-direction:column;">
+  <div id="map"></div>
+  <div class="map-tip">Click the map to identify crops at any location</div>
+  <button id="gps-btn" title="Go to my location">📍</button>
+  <button id="watch-btn" title="Road trip mode: track my location">🚗</button>
+</div>
+
+<div id="cors-warning">
+  ⚠️ CropScape API blocked by browser CORS policy.
+  <a href="https://github.com/your-repo/farm-road-trip#cors" target="_blank">A proxy is needed for production.</a>
+  Try opening via a local server: <code>npx serve src/</code>
+</div>
+
+<div id="panel">
+  <div class="panel-idle">
+    <span style="font-size:1.5rem">🗺️</span>
+    <span>Click anywhere on the map to see what's growing there.</span>
+  </div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<script>
+// ─────────────────────────────────────────────
+// CDL CROP CODE TABLE
+// Source: USDA NASS Cropland Data Layer
+// ─────────────────────────────────────────────
+const CROP_CODES = {
+  1:   { name: "Corn",                    emoji: "🌽", category: "Grain",       fact: "The US grows ~40% of the world's corn. Most of it becomes animal feed or ethanol." },
+  2:   { name: "Cotton",                  emoji: "🌿", category: "Fiber",       fact: "A single cotton plant can produce a pound of fiber — enough for a t-shirt." },
+  3:   { name: "Rice",                    emoji: "🍚", category: "Grain",       fact: "Rice paddies can hold water for months, acting as critical wetland habitat." },
+  4:   { name: "Sorghum",                 emoji: "🌾", category: "Grain",       fact: "Sorghum is one of the most drought-tolerant crops, thriving where corn can't." },
+  5:   { name: "Soybeans",                emoji: "🌱", category: "Oilseed",     fact: "The US produces about 35% of the world's soybeans — most exported to China." },
+  6:   { name: "Sunflower",               emoji: "🌻", category: "Oilseed",     fact: "Sunflowers always face east after maturity — they stop tracking the sun once fully grown." },
+  10:  { name: "Peanuts",                 emoji: "🥜", category: "Legume",      fact: "It takes about 540 peanuts to make a jar of peanut butter." },
+  11:  { name: "Tobacco",                 emoji: "🍃", category: "Specialty",   fact: "North Carolina grows more tobacco than any other US state." },
+  12:  { name: "Sweet Corn",              emoji: "🌽", category: "Vegetable",   fact: "Sweet corn is harvested before maturity — field corn is left to dry on the stalk." },
+  13:  { name: "Pop or Orn Corn",         emoji: "🍿", category: "Grain",       fact: "Popcorn pops because a tiny drop of water inside each kernel turns to steam." },
+  14:  { name: "Mint",                    emoji: "🌿", category: "Specialty",   fact: "The US grows most of the world's peppermint and spearmint, mainly in the Pacific NW." },
+  21:  { name: "Barley",                  emoji: "🌾", category: "Grain",       fact: "Barley is one of the world's oldest cultivated grains — brewed into beer for 10,000 years." },
+  22:  { name: "Durum Wheat",             emoji: "🌾", category: "Grain",       fact: "Durum wheat's high protein makes it ideal for pasta — it holds its shape while cooking." },
+  23:  { name: "Spring Wheat",            emoji: "🌾", category: "Grain",       fact: "Spring wheat is planted in spring and harvested in summer — unlike winter wheat." },
+  24:  { name: "Winter Wheat",            emoji: "🌾", category: "Grain",       fact: "Winter wheat is planted in fall, goes dormant under snow, and is harvested in June." },
+  25:  { name: "Other Small Grains",      emoji: "🌾", category: "Grain",       fact: "Small grains include triticale, einkorn, emmer, and other ancient wheats." },
+  26:  { name: "Dbl Crop WinWht/Soybeans",emoji:"🌾", category: "Grain",       fact: "Double cropping means two crops are grown on the same land in one year." },
+  27:  { name: "Rye",                     emoji: "🌾", category: "Grain",       fact: "Rye can grow in poorer soils than wheat, making it a staple in northern Europe." },
+  28:  { name: "Oats",                    emoji: "🌾", category: "Grain",       fact: "Oats were the original energy food — fueling horses that powered agriculture for centuries." },
+  29:  { name: "Millet",                  emoji: "🌾", category: "Grain",       fact: "Millet is gluten-free and one of the fastest-maturing small grains, ready in 65 days." },
+  30:  { name: "Speltz",                  emoji: "🌾", category: "Grain",       fact: "Spelt is an ancient wheat variety seeing renewed interest for its nutty flavor." },
+  31:  { name: "Canola",                  emoji: "🌼", category: "Oilseed",     fact: "Canola oil comes from breeding erucic acid out of rapeseed — 'canola' means 'Canadian oil.'" },
+  32:  { name: "Flaxseed",               emoji: "💜", category: "Oilseed",     fact: "Linen fabric is made from flax fibers. The plant has been cultivated for 30,000 years." },
+  33:  { name: "Safflower",              emoji: "🌼", category: "Oilseed",     fact: "Safflower produces both cooking oil and a red-orange dye historically used in textiles." },
+  34:  { name: "Rape Seed",              emoji: "🌼", category: "Oilseed",     fact: "Rapeseed is one of the most important oil crops in the world, used in cooking and biodiesel." },
+  35:  { name: "Mustard",               emoji: "🌿", category: "Specialty",   fact: "Yellow mustard seeds from Montana flavor most American hot dog mustard." },
+  36:  { name: "Alfalfa",               emoji: "🌿", category: "Forage",      fact: "Alfalfa is the most irrigated crop in the US — it powers the dairy and beef industries." },
+  37:  { name: "Other Hay/Non Alfalfa", emoji: "🌿", category: "Forage",      fact: "Hay is simply grass or legumes cut and dried — the foundation of livestock farming." },
+  38:  { name: "Camelina",              emoji: "🌿", category: "Oilseed",     fact: "Camelina is being developed as a jet biofuel crop — it can grow on marginal land." },
+  39:  { name: "Buckwheat",             emoji: "🌿", category: "Grain",       fact: "Buckwheat isn't a wheat at all — it's related to rhubarb and sorrel." },
+  41:  { name: "Sugarbeets",            emoji: "🟣", category: "Sugar",       fact: "About half of US sugar comes from sugarbeets — not sugarcane." },
+  42:  { name: "Dry Beans",             emoji: "🫘", category: "Legume",      fact: "North Dakota grows more dry beans than any other US state — pinto, navy, and black beans." },
+  43:  { name: "Potatoes",              emoji: "🥔", category: "Vegetable",   fact: "Idaho's volcanic soil and mountain water create ideal conditions for Russet potatoes." },
+  44:  { name: "Other Crops",           emoji: "🌿", category: "Other",       fact: "The USDA CDL groups uncommon specialty crops into this catch-all category." },
+  45:  { name: "Sugarcane",             emoji: "🎋", category: "Sugar",       fact: "Florida and Louisiana grow virtually all US sugarcane — it needs a subtropical climate." },
+  46:  { name: "Sweet Potatoes",        emoji: "🍠", category: "Vegetable",   fact: "North Carolina produces more sweet potatoes than any other state by a wide margin." },
+  47:  { name: "Misc Vegs & Fruits",   emoji: "🥬", category: "Vegetable",   fact: "California's Central Valley produces over 1/3 of all US vegetables and 2/3 of its fruits." },
+  48:  { name: "Watermelons",           emoji: "🍉", category: "Fruit",       fact: "Watermelons are 92% water, helping ancient travelers stay hydrated across deserts." },
+  49:  { name: "Onions",                emoji: "🧅", category: "Vegetable",   fact: "The Walla Walla Sweet Onion from Washington is so mild you can eat it like an apple." },
+  50:  { name: "Cucumbers",             emoji: "🥒", category: "Vegetable",   fact: "Cucumbers are technically fruits — botanically speaking, so are tomatoes and peppers." },
+  51:  { name: "Chick Peas",            emoji: "🫘", category: "Legume",      fact: "The US chickpea crop has tripled since 2005 driven by hummus demand." },
+  52:  { name: "Lentils",               emoji: "🫘", category: "Legume",      fact: "Eastern Washington and Idaho grow ~95% of US lentils in the Palouse region." },
+  53:  { name: "Peas",                  emoji: "🟢", category: "Legume",      fact: "Peas are one of the first crops humans cultivated — dating back over 10,000 years." },
+  54:  { name: "Tomatoes",              emoji: "🍅", category: "Vegetable",   fact: "California grows 96% of all processing tomatoes in the US — for ketchup, sauce, paste." },
+  55:  { name: "Caneberries",           emoji: "🫐", category: "Fruit",       fact: "Caneberries include raspberries, blackberries, boysenberries, and loganberries." },
+  56:  { name: "Hops",                  emoji: "🌿", category: "Specialty",   fact: "The Yakima Valley in Washington produces ~75% of all US hops used in craft beer." },
+  57:  { name: "Herbs",                 emoji: "🌿", category: "Specialty",   fact: "California, Georgia, and Washington lead US herb production for fresh and dried markets." },
+  58:  { name: "Clover/Wildflowers",   emoji: "🌸", category: "Forage",      fact: "Clover fixes nitrogen from the air, naturally fertilizing soil without synthetic inputs." },
+  59:  { name: "Sod/Grass Seed",       emoji: "🌱", category: "Other",       fact: "Oregon's Willamette Valley grows grass seed for lawns from Seattle to Miami." },
+  60:  { name: "Switchgrass",           emoji: "🌿", category: "Energy",      fact: "Switchgrass is a native prairie grass being researched as a cellulosic biofuel feedstock." },
+  61:  { name: "Fallow/Idle Cropland", emoji: "⬜", category: "Fallow",      fact: "Fallowing rests the soil, reduces pests, and can be required for crop insurance programs." },
+  62:  { name: "Pasture/Grass",        emoji: "🟩", category: "Forage",      fact: "Pastureland covers more US acreage than any other agricultural use." },
+  63:  { name: "Forest",               emoji: "🌲", category: "Non-Crop",    fact: "You're in woodland — not farmland. This area is forested." },
+  64:  { name: "Shrubland",            emoji: "🌿", category: "Non-Crop",    fact: "Shrubland often borders farmland and provides habitat for pollinators and wildlife." },
+  65:  { name: "Barren",               emoji: "🏜️", category: "Non-Crop",   fact: "Barren land may be a quarry, dry lakebed, or heavily disturbed area." },
+  66:  { name: "Cherries",              emoji: "🍒", category: "Fruit",       fact: "Michigan produces 75% of the tart cherries and Washington leads sweet cherry production." },
+  67:  { name: "Peaches",              emoji: "🍑", category: "Fruit",       fact: "California grows about half of US peaches; Georgia is the 'Peach State' but now ranks 4th." },
+  68:  { name: "Apples",               emoji: "🍎", category: "Fruit",       fact: "Washington State produces 60% of all US apples — the Yakima and Wenatchee valleys." },
+  69:  { name: "Grapes",               emoji: "🍇", category: "Fruit",       fact: "California's wine country (Napa, Sonoma) produces world-class Cabernet and Chardonnay." },
+  70:  { name: "Christmas Trees",      emoji: "🎄", category: "Specialty",   fact: "Oregon grows more Christmas trees than any other state — about 5 million per year." },
+  71:  { name: "Other Tree Crops",     emoji: "🌳", category: "Fruit",       fact: "This catch-all covers avocados, figs, kiwi, lychee, and other specialty tree crops." },
+  72:  { name: "Citrus",               emoji: "🍊", category: "Fruit",       fact: "Florida grows most US oranges for juice; California grows most fresh-market citrus." },
+  74:  { name: "Pecans",               emoji: "🌰", category: "Nut",         fact: "Georgia leads the US in pecan production — they're one of the few native North American nuts." },
+  75:  { name: "Almonds",              emoji: "🌰", category: "Nut",         fact: "California's Central Valley grows 80% of the world's almonds. Each almond needs a bee to pollinate it." },
+  76:  { name: "Walnuts",              emoji: "🌰", category: "Nut",         fact: "California produces 99% of US walnuts — the Central Valley has ideal hot, dry summers." },
+  77:  { name: "Pears",               emoji: "🍐", category: "Fruit",       fact: "Oregon and Washington's Hood River Valley is famous for Bartlett and Bosc pears." },
+  204: { name: "Pistachios",           emoji: "🟢", category: "Nut",         fact: "The US became a major pistachio producer after the 1979 Iran embargo cut off imports." },
+  205: { name: "Triticale",            emoji: "🌾", category: "Grain",       fact: "Triticale is a hybrid of wheat and rye, combining the yield of wheat with rye's hardiness." },
+  206: { name: "Carrots",              emoji: "🥕", category: "Vegetable",   fact: "California grows 85% of US carrots — the Bakersfield area's sandy soil is ideal." },
+  207: { name: "Asparagus",            emoji: "🥦", category: "Vegetable",   fact: "Asparagus takes 3 years to establish but then produces for 20+ years." },
+  208: { name: "Garlic",               emoji: "🧄", category: "Vegetable",   fact: "Gilroy, California is the 'Garlic Capital of the World' — it hosts an annual garlic festival." },
+  209: { name: "Cantaloupes",          emoji: "🍈", category: "Fruit",       fact: "California and Arizona grow most US cantaloupes in hot desert valleys." },
+  210: { name: "Prunes",               emoji: "🟣", category: "Fruit",       fact: "California grows 99% of US prunes (dried plums) — mostly in the Sacramento Valley." },
+  211: { name: "Olives",               emoji: "🫒", category: "Fruit",       fact: "California produces nearly all US olives; table olives and olive oil both come from Tehama County." },
+  212: { name: "Oranges",              emoji: "🍊", category: "Fruit",       fact: "Florida's 'Valencia' oranges are the sweet, thin-skinned variety grown for OJ." },
+  213: { name: "Honeydew Melons",      emoji: "🍈", category: "Fruit",       fact: "Honeydew and cantaloupe belong to the same species — just different varieties." },
+  214: { name: "Broccoli",             emoji: "🥦", category: "Vegetable",   fact: "California's Salinas Valley grows 90% of US broccoli — the fog and cool air are perfect." },
+  215: { name: "Avocados",             emoji: "🥑", category: "Fruit",       fact: "California produces 90% of US avocados; a single tree can produce 500 avocados a year." },
+  216: { name: "Peppers",              emoji: "🌶️", category: "Vegetable",  fact: "New Mexico's Hatch Valley is famous for its distinctive green and red chile peppers." },
+  217: { name: "Pomegranates",         emoji: "🟥", category: "Fruit",       fact: "California's San Joaquin Valley grows almost all US pomegranates." },
+  218: { name: "Nectarines",           emoji: "🍑", category: "Fruit",       fact: "Nectarines are just peaches with a single gene change — no fuzz." },
+  219: { name: "Greens",               emoji: "🥬", category: "Vegetable",   fact: "Southern 'greens' — collards, turnip greens, mustard greens — are a regional staple crop." },
+  220: { name: "Plums",                emoji: "🟣", category: "Fruit",       fact: "California grows most fresh-market plums; Japanese varieties dominate US orchards." },
+  221: { name: "Strawberries",         emoji: "🍓", category: "Fruit",       fact: "California produces 88% of US strawberries; Watsonville and Salinas are the heart of it." },
+  222: { name: "Squash",               emoji: "🎃", category: "Vegetable",   fact: "Squash was one of the 'Three Sisters' — grown with corn and beans by Native Americans." },
+  223: { name: "Apricots",             emoji: "🟠", category: "Fruit",       fact: "The Santa Clara Valley was once the 'Valley of Heart's Delight' — filled with apricot orchards." },
+  224: { name: "Vetch",                emoji: "🌿", category: "Forage",      fact: "Vetch is a nitrogen-fixing cover crop often grown alongside oats to enrich soil." },
+  225: { name: "Dbl Crop WinWht/Corn", emoji: "🌾", category: "Grain",       fact: "Double cropping winter wheat with corn is common in the Mid-Atlantic states." },
+  226: { name: "Dbl Crop Oats/Corn",  emoji: "🌾", category: "Grain",       fact: "Planting oats as a cover crop before corn helps prevent soil erosion." },
+  227: { name: "Lettuce",              emoji: "🥬", category: "Vegetable",   fact: "The Salinas Valley in California is the 'Salad Bowl of the World' — perfect cool climate." },
+  228: { name: "Dbl Crop Triticale/Corn",emoji:"🌾",category: "Grain",       fact: "Double crop systems maximize land use and can reduce input costs per bushel." },
+  229: { name: "Pumpkins",             emoji: "🎃", category: "Vegetable",   fact: "Illinois grows more pumpkins than any other state — about 90% go to canned pumpkin." },
+  230: { name: "Dbl Crop Lettuce/Durum",emoji:"🥬",category: "Vegetable",   fact: "Arizona's desert heat in summer gives way to perfect winter lettuce growing conditions." },
+  231: { name: "Dbl Crop Lettuce/Cotton",emoji:"🥬",category: "Vegetable",  fact: "Imperial Valley, CA — one of the most productive desert farmlands in the world." },
+  232: { name: "Dbl Crop Lettuce/Barley",emoji:"🥬",category: "Vegetable",  fact: "Yuma, AZ grows 90% of US leafy greens in winter months when the rest of the country can't." },
+  233: { name: "Dbl Crop Durum/Sorghum",emoji:"🌾",category: "Grain",       fact: "Sorghum's drought tolerance makes it an ideal second crop in hot, dry regions." },
+  234: { name: "Dbl Crop Barley/Sorghum",emoji:"🌾",category: "Grain",      fact: "Double cropping requires careful timing to get both crops to maturity in one season." },
+  235: { name: "Dbl Crop WinWht/Sorghum",emoji:"🌾",category: "Grain",      fact: "Winter wheat and grain sorghum is a classic Great Plains double crop rotation." },
+  236: { name: "Dbl Crop Barley/Corn",  emoji: "🌾", category: "Grain",     fact: "Barley matures faster than wheat, making it a good first crop in a double crop system." },
+  237: { name: "Dbl Crop WinWht/Cotton",emoji: "🌾", category: "Grain",     fact: "Common in the Texas Panhandle and Oklahoma — wheat in winter, cotton in summer." },
+  238: { name: "Dbl Crop Soybeans/Cotton",emoji:"🌱",category: "Oilseed",   fact: "This rotation is common in parts of the Mississippi Delta where both crops thrive." },
+  239: { name: "Dbl Crop Soybeans/Oats", emoji:"🌱",category: "Oilseed",   fact: "Oats winter-kill and serve as a weed-suppressing companion in soy double crop systems." },
+  240: { name: "Dbl Crop Corn/Soybeans", emoji:"🌽",category: "Grain",      fact: "Corn-soy rotation is America's most common farming system — billions of acres across the Midwest." },
+  241: { name: "Dbl Crop Soybeans/Corn", emoji:"🌱",category: "Oilseed",   fact: "This variant plants soybeans first, then corn — unusual but practiced in some regions." },
+  242: { name: "Dbl Crop Soybeans/WinWht",emoji:"🌱",category:"Oilseed",   fact: "Soybeans after winter wheat is a very common rotation in the mid-Atlantic and South." },
+  243: { name: "Dbl Crop Corn/WinWht",   emoji:"🌽",category: "Grain",      fact: "Corn after winter wheat is a standard summer cash crop rotation in the eastern Corn Belt." },
+  244: { name: "Dbl Crop Sorghum/WinWht",emoji:"🌾",category: "Grain",     fact: "Grain sorghum after winter wheat is common in Kansas and Oklahoma." },
+  245: { name: "Dbl Crop Barley/Soybeans",emoji:"🌾",category:"Grain",     fact: "Barley matures in early summer, leaving time for a soybean crop in the South." },
+  246: { name: "Dbl Crop WinWht/Sunflower",emoji:"🌻",category:"Grain",    fact: "Sunflowers after winter wheat are grown in the Northern Plains for oil and birdseed." },
+  247: { name: "Broccoli/Icebrg Lettuce",emoji:"🥦",category:"Vegetable",  fact: "Yuma County, AZ — America's winter lettuce and vegetable capital." },
+  248: { name: "Dbl Crop Soybeans/Sorghum",emoji:"🌱",category:"Oilseed",  fact: "Soybeans and sorghum are sometimes grown in rotation in the upper South." },
+  249: { name: "Dbl Crop Soybeans/Barley",emoji:"🌱",category:"Oilseed",   fact: "Barley as a cover crop before soybeans helps suppress weeds and fix soil structure." },
+  // Non-crop codes
+  111: { name: "Open Water",            emoji: "🌊", category: "Non-Crop",    fact: "You're over a lake, river, reservoir, or coastal water." },
+  112: { name: "Perennial Ice/Snow",    emoji: "❄️", category: "Non-Crop",   fact: "This area has year-round ice — likely a glacier or permanent snowfield." },
+  121: { name: "Developed/Open Space",  emoji: "🏘️", category: "Urban",     fact: "Low-density developed area — parks, golf courses, scattered buildings." },
+  122: { name: "Developed/Low Intensity",emoji:"🏘️", category: "Urban",     fact: "Residential neighborhoods with some vegetation." },
+  123: { name: "Developed/Med Intensity",emoji:"🏙️", category: "Urban",    fact: "Commercial, industrial, or medium-density residential area." },
+  124: { name: "Developed/High Intensity",emoji:"🌆",category: "Urban",     fact: "Dense urban core — mostly pavement and buildings." },
+  131: { name: "Barren",                emoji: "🏜️", category: "Non-Crop", fact: "Rock outcrops, sand dunes, strip mines, or gravel pits." },
+  141: { name: "Deciduous Forest",      emoji: "🍂", category: "Non-Crop",   fact: "Trees that lose leaves in fall — oak, maple, hickory, and poplar." },
+  142: { name: "Evergreen Forest",      emoji: "🌲", category: "Non-Crop",   fact: "Pine, fir, and spruce forests that stay green year-round." },
+  143: { name: "Mixed Forest",          emoji: "🌳", category: "Non-Crop",   fact: "A mix of deciduous and evergreen trees — common in transition zones." },
+  152: { name: "Shrubland",             emoji: "🌿", category: "Non-Crop",   fact: "Sagebrush, chaparral, or other low shrubs — often a buffer between farms and forest." },
+  176: { name: "Grassland/Pasture",     emoji: "🟩", category: "Forage",     fact: "Open grassland — could be native prairie or improved pasture for grazing." },
+  190: { name: "Woody Wetlands",        emoji: "🌿", category: "Wetland",    fact: "Forested swamps and bogs — critical carbon storage and wildlife habitat." },
+  195: { name: "Herbaceous Wetlands",   emoji: "🌾", category: "Wetland",    fact: "Marshes and wet meadows — important habitat for migratory birds." },
+};
+
+function getCropInfo(code) {
+  const n = parseInt(code);
+  return CROP_CODES[n] || { name: `Unknown (code ${code})`, emoji: "❓", category: "Unknown", fact: "USDA CDL code not in our lookup table." };
+}
+
+// ─────────────────────────────────────────────
+// DWR CROP CODE TABLE
+// Source: CA DWR Land Use Survey standard classification
+// Codes: letter = class, number = subclass (e.g. "T4" = Truck class, subclass 4)
+// ─────────────────────────────────────────────
+const DWR_CODES = {
+  // G — Grain and Hay
+  "G":   { name: "Grain or Hay",              emoji: "🌾", category: "Grain" },
+  "G1":  { name: "Wheat",                     emoji: "🌾", category: "Grain" },
+  "G2":  { name: "Corn (Grain)",              emoji: "🌽", category: "Grain" },
+  "G3":  { name: "Oats / Barley",             emoji: "🌾", category: "Grain" },
+  "G4":  { name: "Mixed Grain & Hay",         emoji: "🌾", category: "Grain" },
+  "G5":  { name: "Alfalfa",                   emoji: "🌿", category: "Forage" },
+  "G6":  { name: "Wild / Mixed Hay",          emoji: "🌿", category: "Forage" },
+  "G7":  { name: "Sorghum",                   emoji: "🌾", category: "Grain" },
+  "G8":  { name: "Sunflowers",                emoji: "🌻", category: "Oilseed" },
+  "G9":  { name: "Misc. Grain / Hay",         emoji: "🌾", category: "Grain" },
+  // P — Pasture
+  "P":   { name: "Pasture",                   emoji: "🟩", category: "Pasture" },
+  "P1":  { name: "Alfalfa (Pasture)",         emoji: "🌿", category: "Pasture" },
+  "P2":  { name: "Clover",                    emoji: "🍀", category: "Pasture" },
+  "P3":  { name: "Mixed Pasture",             emoji: "🟩", category: "Pasture" },
+  "P4":  { name: "Native Pasture",            emoji: "🌿", category: "Pasture" },
+  "P5":  { name: "Turf Grass",               emoji: "🟩", category: "Pasture" },
+  "P6":  { name: "Misc. Grasses",            emoji: "🌿", category: "Pasture" },
+  // R — Rice
+  "R":   { name: "Rice",                      emoji: "🍚", category: "Rice" },
+  "R1":  { name: "Rice",                      emoji: "🍚", category: "Rice" },
+  "R2":  { name: "Wild Rice",                 emoji: "🌾", category: "Rice" },
+  // T — Truck, Nursery, Berry Crops (vegetables)
+  "T":   { name: "Vegetables",                emoji: "🥬", category: "Vegetable" },
+  "T1":  { name: "Tomatoes (Processing)",     emoji: "🍅", category: "Vegetable" },
+  "T2":  { name: "Tomatoes (Fresh)",          emoji: "🍅", category: "Vegetable" },
+  "T3":  { name: "Peppers",                   emoji: "🌶️", category: "Vegetable" },
+  "T4":  { name: "Dry Beans",                 emoji: "🫘", category: "Vegetable" },
+  "T5":  { name: "Sweet Corn",                emoji: "🌽", category: "Vegetable" },
+  "T6":  { name: "Squash / Cucumbers",        emoji: "🥒", category: "Vegetable" },
+  "T7":  { name: "Lettuce / Leafy Greens",   emoji: "🥬", category: "Vegetable" },
+  "T8":  { name: "Broccoli / Cole Crops",    emoji: "🥦", category: "Vegetable" },
+  "T9":  { name: "Onions / Garlic",          emoji: "🧅", category: "Vegetable" },
+  "T10": { name: "Potatoes",                  emoji: "🥔", category: "Vegetable" },
+  "T11": { name: "Carrots",                   emoji: "🥕", category: "Vegetable" },
+  "T12": { name: "Asparagus",                 emoji: "🫛", category: "Vegetable" },
+  "T13": { name: "Artichokes",                emoji: "🌿", category: "Vegetable" },
+  "T14": { name: "Strawberries",              emoji: "🍓", category: "Fruit" },
+  "T15": { name: "Misc. Vegetables",          emoji: "🥬", category: "Vegetable" },
+  "T16": { name: "Nursery",                   emoji: "🪴", category: "Nursery" },
+  "T17": { name: "Christmas Trees",           emoji: "🎄", category: "Specialty" },
+  "T18": { name: "Cut Flowers",               emoji: "💐", category: "Specialty" },
+  "T19": { name: "Subtropical Vegetables",    emoji: "🥬", category: "Vegetable" },
+  "T20": { name: "Celery",                    emoji: "🥬", category: "Vegetable" },
+  "T21": { name: "Spinach / Kale",            emoji: "🥬", category: "Vegetable" },
+  "T22": { name: "Melons",                    emoji: "🍈", category: "Fruit" },
+  "T23": { name: "Watermelons",               emoji: "🍉", category: "Fruit" },
+  "T24": { name: "Green Beans",               emoji: "🫘", category: "Vegetable" },
+  "T25": { name: "Peas",                      emoji: "🟢", category: "Vegetable" },
+  "T26": { name: "Spinach",                   emoji: "🥬", category: "Vegetable" },
+  "T27": { name: "Head Lettuce",              emoji: "🥬", category: "Vegetable" },
+  "T28": { name: "Leaf Lettuce",              emoji: "🥬", category: "Vegetable" },
+  "T29": { name: "Endive / Escarole",         emoji: "🥬", category: "Vegetable" },
+  "T30": { name: "Mixed Vegetables",          emoji: "🥬", category: "Vegetable" },
+  // D — Deciduous Fruits and Nuts
+  "D":   { name: "Deciduous Fruits & Nuts",  emoji: "🍎", category: "Fruit" },
+  "D1":  { name: "Almonds",                   emoji: "🌰", category: "Nut" },
+  "D2":  { name: "Walnuts",                   emoji: "🌰", category: "Nut" },
+  "D3":  { name: "Pistachios",                emoji: "🟢", category: "Nut" },
+  "D4":  { name: "Cherries",                  emoji: "🍒", category: "Fruit" },
+  "D5":  { name: "Peaches / Nectarines",      emoji: "🍑", category: "Fruit" },
+  "D6":  { name: "Plums / Prunes",            emoji: "🟣", category: "Fruit" },
+  "D7":  { name: "Apricots",                  emoji: "🟠", category: "Fruit" },
+  "D8":  { name: "Pears",                     emoji: "🍐", category: "Fruit" },
+  "D9":  { name: "Apples",                    emoji: "🍎", category: "Fruit" },
+  "D10": { name: "Figs",                      emoji: "🟤", category: "Fruit" },
+  "D11": { name: "Pomegranates",              emoji: "🔴", category: "Fruit" },
+  "D12": { name: "Olives",                    emoji: "🫒", category: "Fruit" },
+  "D13": { name: "Mixed Deciduous Orchard",   emoji: "🍎", category: "Fruit" },
+  "D14": { name: "Young Orchard (Deciduous)", emoji: "🌱", category: "Fruit" },
+  // C — Citrus and Subtropical
+  "C":   { name: "Citrus / Subtropical",      emoji: "🍊", category: "Fruit" },
+  "C1":  { name: "Oranges",                   emoji: "🍊", category: "Fruit" },
+  "C2":  { name: "Lemons",                    emoji: "🍋", category: "Fruit" },
+  "C3":  { name: "Grapefruit",                emoji: "🍊", category: "Fruit" },
+  "C4":  { name: "Misc. Citrus",              emoji: "🍊", category: "Fruit" },
+  "C5":  { name: "Avocados",                  emoji: "🥑", category: "Fruit" },
+  "C6":  { name: "Kiwi / Subtropical Fruit",  emoji: "🥝", category: "Fruit" },
+  "C7":  { name: "Young Orchard (Citrus)",    emoji: "🌱", category: "Fruit" },
+  // V — Vineyards
+  "V":   { name: "Vineyards",                 emoji: "🍇", category: "Fruit" },
+  "V1":  { name: "Wine Grapes",               emoji: "🍷", category: "Fruit" },
+  "V2":  { name: "Table Grapes",              emoji: "🍇", category: "Fruit" },
+  "V3":  { name: "Raisin Grapes",             emoji: "🫙", category: "Fruit" },
+  "V4":  { name: "Young Vines",               emoji: "🌱", category: "Fruit" },
+  // F — Field Crops
+  "F":   { name: "Field Crops",               emoji: "🌿", category: "Field" },
+  "F1":  { name: "Cotton",                    emoji: "🌿", category: "Fiber" },
+  "F2":  { name: "Sunflowers",                emoji: "🌻", category: "Oilseed" },
+  "F3":  { name: "Misc. Field Crops",         emoji: "🌿", category: "Field" },
+  "F4":  { name: "Sugar Beets",               emoji: "🟣", category: "Sugar" },
+  "F5":  { name: "Safflower",                 emoji: "🌼", category: "Oilseed" },
+  "F6":  { name: "Misc. Field Crops",         emoji: "🌿", category: "Field" },
+  // I — Idle / Fallow
+  "I":   { name: "Idle / Fallow",             emoji: "⬜", category: "Fallow" },
+  "I1":  { name: "Fallow / Idle",             emoji: "⬜", category: "Fallow" },
+  "I2":  { name: "Idle (Native Veg.)",        emoji: "🌿", category: "Fallow" },
+  // U — Urban
+  "U":   { name: "Urban / Developed",         emoji: "🏘️", category: "Urban" },
+  "U0":  { name: "Urban / Developed",         emoji: "🏘️", category: "Urban" },
+};
+
+function decodeDWR(rawCode) {
+  if (!rawCode) return null;
+  const code = rawCode.trim().replace(/\*/g, "").toUpperCase();
+  if (!code) return null;
+  // Try full code first (e.g. "T4"), then class-only fallback (e.g. "T")
+  return DWR_CODES[code] || DWR_CODES[code.charAt(0)] || null;
+}
+
+// ─────────────────────────────────────────────
+// CALIFORNIA DWR CROP MAP (2023, field-level, 70+ specific crop types)
+// Only used when lat/lng is within California bounds.
+// ─────────────────────────────────────────────
+function isInCalifornia(lat, lng) {
+  return lat >= 32.5 && lat <= 42.1 && lng >= -124.5 && lng <= -114.1;
+}
+
+async function queryDWR(lat, lng) {
+  const res = await fetch(`/dwr/query?lat=${lat}&lng=${lng}`);
+  if (!res.ok) throw new Error(`DWR HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.error) throw new Error(`DWR error: ${json.error.message}`);
+  if (!json.features || json.features.length === 0) return null;
+
+  const a = json.features[0].attributes;
+  const mainCode = (a["MAIN_CROP"] || "").trim().replace(/\*/g, "");
+  if (!mainCode) return null;
+
+  // CROPTYP1 is the earlier-season crop on double-cropped fields
+  const crop1Code = (a["CROPTYP1"] || "").trim().replace(/\*/g, "");
+
+  return {
+    mainCode,
+    crop1Code: (crop1Code && crop1Code !== mainCode) ? crop1Code : null,
+    isDoubleCrop: a["MULTIUSE"] === "D",
+    county: a["COUNTY"] || "",
+    acres: a["ACRES"] ? Math.round(a["ACRES"]) : null,
+  };
+}
+
+function toTitleCase(str) {
+  return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// ─────────────────────────────────────────────
+// CROPSCAPE API CLIENT
+// ─────────────────────────────────────────────
+const CDL_YEAR = 2024; // Most recent available; update annually
+
+async function queryCropScape(lat, lng) {
+  // CropScape uses EPSG:4326 (standard WGS84 lat/lng)
+  // The API endpoint expects (x=longitude, y=latitude)
+  // Route through local proxy to avoid CORS — see server.py
+  // In production, swap /cropscape for a deployed proxy (Cloudflare Worker, Netlify Function, etc.)
+  const url = `/cropscape/GetCDLValue?year=${CDL_YEAR}&x=${lng}&y=${lat}`;
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const text = await res.text();
+
+  // Response XML contains a <Result> with a JSON-like object:
+  // {x: ..., y: ..., value: 37, category: "Other Hay/Non Alfalfa", color: "#A5F58D"}
+  const resultMatch = text.match(/<Result>([\s\S]*?)<\/Result>/i);
+  if (!resultMatch) throw new Error(`Unexpected API response format:\n${text}`);
+
+  const valueMatch = resultMatch[1].match(/value:\s*(\d+)/);
+  if (!valueMatch) throw new Error(`No value in Result: ${resultMatch[1]}`);
+
+  return parseInt(valueMatch[1]);
+}
+
+// Simple in-memory cache: "lat,lng" → result object
+const cropCache = new Map();
+
+async function getCropAt(lat, lng) {
+  const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  if (cropCache.has(key)) return cropCache.get(key);
+
+  let result;
+
+  // Tier 1: California DWR — field-level, 70+ specific crop types
+  if (isInCalifornia(lat, lng)) {
+    try {
+      const dwr = await queryDWR(lat, lng);
+      if (dwr) {
+        result = { type: "dwr", ...dwr };
+        cropCache.set(key, result);
+        return result;
+      }
+    } catch (e) {
+      console.warn("DWR lookup failed, falling back to CDL:", e.message);
+    }
+  }
+
+  // Tier 2: USDA CDL — nationwide raster, 100+ categories
+  const code = await queryCropScape(lat, lng);
+  result = { type: "cdl", code };
+  cropCache.set(key, result);
+  return result;
+}
+
+// ─────────────────────────────────────────────
+// UI
+// ─────────────────────────────────────────────
+const panel = document.getElementById("panel");
+const corsWarning = document.getElementById("cors-warning");
+
+function showLoading(lat, lng) {
+  panel.className = "loading";
+  panel.innerHTML = `
+    <div class="crop-row">
+      <div class="crop-emoji">🔍</div>
+      <div class="crop-info">
+        <div class="crop-name">Looking up crops…</div>
+        <div class="crop-coords">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
+      </div>
+    </div>`;
+}
+
+function showCrop(lat, lng, result) {
+  panel.className = "";
+
+  let name, emoji, category, fact, source;
+
+  if (result.type === "dwr") {
+    const info = decodeDWR(result.mainCode) || { name: result.mainCode, emoji: "🌿", category: "Crop" };
+    name     = info.name;
+    emoji    = info.emoji;
+    category = info.category;
+    source   = "CA DWR 2023" + (result.county ? ` · ${result.county} County` : "");
+
+    // Enrich with a fun fact from CDL if we have a name match
+    const firstWord = name.split(/[\s/]/)[0].toLowerCase();
+    const cdlMatch = Object.values(CROP_CODES).find(c => c.name.toLowerCase().includes(firstWord));
+    fact = cdlMatch ? cdlMatch.fact : "";
+
+    // Show earlier-season crop on double-cropped fields
+    if (result.isDoubleCrop && result.crop1Code) {
+      const crop1 = decodeDWR(result.crop1Code);
+      if (crop1) fact = `${crop1.emoji} Earlier this season: ${crop1.name}. ` + fact;
+    }
+  } else {
+    const crop = getCropInfo(result.code);
+    name     = crop.name;
+    emoji    = crop.emoji;
+    category = crop.category;
+    fact     = crop.fact;
+    source   = `USDA CDL ${CDL_YEAR}`;
+  }
+
+  panel.innerHTML = `
+    <div class="crop-row">
+      <div class="crop-emoji">${emoji}</div>
+      <div class="crop-info">
+        <div class="crop-name">${name}</div>
+        <div class="crop-category">${category} · ${source}</div>
+        ${fact ? `<div class="crop-fact">${fact}</div>` : ""}
+        <div class="crop-coords">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
+      </div>
+    </div>`;
+}
+
+function showError(lat, lng, err) {
+  panel.className = "";
+  const isCors = err.message && (err.message.includes("Failed to fetch") || err.message.includes("NetworkError") || err.message.includes("CORS"));
+  if (isCors) corsWarning.style.display = "block";
+  panel.innerHTML = `
+    <div class="crop-row">
+      <div class="crop-emoji">⚠️</div>
+      <div class="crop-info">
+        <div class="crop-name error-msg">${isCors ? "CORS error — serve via a local server" : "API error"}</div>
+        <div class="crop-fact error-msg">${err.message}</div>
+        <div class="crop-coords">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
+      </div>
+    </div>`;
+}
+
+// ─────────────────────────────────────────────
+// MAP SETUP
+// ─────────────────────────────────────────────
+const map = L.map("map", {
+  center: [39.5, -98.35],  // Geographic center of the continental US
+  zoom: 5,
+  zoomControl: true,
+});
+
+// Dark basemap tile layer (CartoDB Dark Matter)
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a> | Crop data: USDA NASS CDL',
+  subdomains: "abcd",
+  maxZoom: 19,
+}).addTo(map);
+
+// Click marker
+let clickMarker = null;
+
+function placeMarker(lat, lng) {
+  if (clickMarker) map.removeLayer(clickMarker);
+  clickMarker = L.circleMarker([lat, lng], {
+    radius: 8,
+    fillColor: "#7ec8a0",
+    color: "#fff",
+    weight: 2,
+    fillOpacity: 0.9,
+  }).addTo(map);
+}
+
+// GPS location marker (pulsing blue dot)
+let gpsMarker = null;
+
+function placeGpsMarker(lat, lng) {
+  if (gpsMarker) map.removeLayer(gpsMarker);
+  const icon = L.divIcon({
+    className: "",
+    html: '<div class="location-pulse"></div>',
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+  });
+  gpsMarker = L.marker([lat, lng], { icon }).addTo(map);
+}
+
+// On map click: query that location
+map.on("click", async (e) => {
+  const { lat, lng } = e.latlng;
+  placeMarker(lat, lng);
+  showLoading(lat, lng);
+  try {
+    const code = await getCropAt(lat, lng);
+    showCrop(lat, lng, code);
+  } catch (err) {
+    showError(lat, lng, err);
+  }
+});
+
+// ─────────────────────────────────────────────
+// GPS BUTTON
+// ─────────────────────────────────────────────
+const gpsBtn = document.getElementById("gps-btn");
+
+gpsBtn.addEventListener("click", () => {
+  if (!navigator.geolocation) {
+    alert("Geolocation is not supported by your browser.");
+    return;
+  }
+  gpsBtn.textContent = "⏳";
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      gpsBtn.textContent = "📍";
+      gpsBtn.classList.add("active");
+      const { latitude: lat, longitude: lng } = pos.coords;
+      map.setView([lat, lng], 13);
+      placeGpsMarker(lat, lng);
+      placeMarker(lat, lng);
+      showLoading(lat, lng);
+      try {
+        const result = await getCropAt(lat, lng);
+        showCrop(lat, lng, result);
+      } catch (err) {
+        showError(lat, lng, err);
+      }
+    },
+    (err) => {
+      gpsBtn.textContent = "📍";
+      alert("Could not get location: " + err.message);
+    },
+    { enableHighAccuracy: true }
+  );
+});
+
+// ─────────────────────────────────────────────
+// ROAD TRIP MODE (watchPosition)
+// ─────────────────────────────────────────────
+const watchBtn = document.getElementById("watch-btn");
+let watchId = null;
+let lastWatchLat = null;
+let lastWatchLng = null;
+const MIN_DISTANCE_DEG = 0.001; // ~100m before re-querying
+
+function deg2rad(d) { return d * Math.PI / 180; }
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = deg2rad(lat2 - lat1);
+  const dLng = deg2rad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+watchBtn.addEventListener("click", () => {
+  if (watchId !== null) {
+    // Stop watching
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    watchBtn.classList.remove("active");
+    watchBtn.title = "Road trip mode: track my location";
+  } else {
+    // Start watching
+    if (!navigator.geolocation) { alert("Geolocation not supported."); return; }
+    watchBtn.classList.add("active");
+    watchBtn.title = "Stop tracking";
+    watchId = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        placeGpsMarker(lat, lng);
+        map.setView([lat, lng], 13);
+
+        // Only query if we've moved enough
+        if (lastWatchLat !== null) {
+          const dist = haversine(lastWatchLat, lastWatchLng, lat, lng);
+          if (dist < 0.1) return; // Less than ~100m, skip
+        }
+        lastWatchLat = lat;
+        lastWatchLng = lng;
+
+        placeMarker(lat, lng);
+        showLoading(lat, lng);
+        try {
+          const code = await getCropAt(lat, lng);
+          showCrop(lat, lng, code);
+        } catch (err) {
+          showError(lat, lng, err);
+        }
+      },
+      (err) => {
+        watchBtn.classList.remove("active");
+        watchId = null;
+        alert("Location error: " + err.message);
+      },
+      { enableHighAccuracy: true, maximumAge: 5000 }
+    );
+  }
+});
+</script>
+</body>
+</html>

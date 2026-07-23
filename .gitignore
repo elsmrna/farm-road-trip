@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Node / Netlify
+node_modules/
+.netlify/
+
+# macOS
+.DS_Store

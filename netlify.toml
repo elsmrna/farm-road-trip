@@ -1,0 +1,15 @@
+[build]
+  publish = "src"
+  functions = "netlify/functions"
+
+# /cropscape/GetCDLValue?year=...&x=...&y=... → cropscape function
+[[redirects]]
+  from = "/cropscape/*"
+  to = "/.netlify/functions/cropscape"
+  status = 200
+
+# /dwr/query?lat=...&lng=... → dwr function
+[[redirects]]
+  from = "/dwr/query"
+  to = "/.netlify/functions/dwr"
+  status = 200
